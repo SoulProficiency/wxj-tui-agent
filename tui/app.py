@@ -688,7 +688,7 @@ class AgentApp(App):
         elif cmd == "/logo":
             self._handle_logo_command()
         elif cmd == "/newdaily":
-            self.run_worker(self._handle_newdaily_command(), thread=False)
+            self._start_newdaily_background()
         elif cmd == "/abort":
             self._abort_query()
         elif cmd == "/stop":
@@ -716,76 +716,78 @@ class AgentApp(App):
         except Exception as e:
             ml.add_system_message(f"Logo error: {e}", style="red")
 
-    async def _handle_newdaily_command(self) -> None:
-        """Regenerate daily.md via LLM. Only one run at a time."""
+    def _start_newdaily_background(self) -> None:
+        """Launch /newdaily as a fire-and-forget asyncio task.
+        Runs in the same event loop but is NOT bound to Textual worker system,
+        so cancel_all() won't kill it and the chat input stays fully responsive.
+        """
+        import asyncio as _asyncio
         ml = self.query_one("#message-list", MessageList)
         from tui.logo_panel import LogoPanel, NewsPanel
 
-        # ── Mutex guard ───────────────────────────────────────────────────────
         if self._newdaily_running:
             ml.add_system_message(
-                "● /newdaily is already running — please wait for it to finish.",
+                "[newdaily] already running in background — please wait.",
                 style="yellow",
             )
             return
 
         self._newdaily_running = True
-
-        # Mark panel as busy (yellow)
         try:
             self.query_one("#logo-panel", LogoPanel).set_daily_status(NewsPanel.STATUS_BUSY)
         except Exception:
             pass
 
-        ml.add_system_message("● Updating daily.md via LLM… (web search for 15-20 headlines may take 2-5 min; "
-                              "for faster results use qwen-turbo or qwen-flash in /setup)", style="yellow")
+        ml.add_system_message(
+            "[newdaily] started in background. You can keep chatting normally.\n"
+            "  (web search for 15-20 headlines may take 2-5 min; "
+            "for faster results use qwen-turbo or qwen-flash in /setup)",
+            style="yellow",
+        )
 
-        try:
-            from agent.daily import force_update
-            # Wrap with asyncio.wait_for so CancelledError / timeout always
-            # propagates cleanly and the finally block runs.
-            import asyncio as _asyncio
-            success, msg = await _asyncio.wait_for(
-                force_update(self._config),
-                timeout=600,  # 10-minute hard cap (15-20 headlines web search can take 3-5 min)
-            )
-
-            if success:
-                # Green: success — refresh panels with new content
+        async def _run() -> None:
+            try:
+                from agent.daily import force_update
+                success, msg = await _asyncio.wait_for(
+                    force_update(self._config),
+                    timeout=600,
+                )
                 try:
                     logo = self.query_one("#logo-panel", LogoPanel)
-                    logo.set_daily_status(NewsPanel.STATUS_OK)
-                    logo.refresh_daily()
+                    logo.set_daily_status(NewsPanel.STATUS_OK if success else NewsPanel.STATUS_STALE)
+                    if success:
+                        logo.refresh_daily()
                 except Exception:
                     pass
-                ml.add_system_message(f"● {msg}", style="green")
-            else:
-                # Red: LLM failed (fallback written)
+                _sty = "green" if success else "yellow"
+                self.query_one("#message-list", MessageList).add_system_message(
+                    f"[newdaily] {msg}", style=_sty
+                )
+            except _asyncio.TimeoutError:
                 try:
                     self.query_one("#logo-panel", LogoPanel).set_daily_status(NewsPanel.STATUS_STALE)
                 except Exception:
                     pass
-                ml.add_system_message(f"● {msg}", style="yellow")
+                self.query_one("#message-list", MessageList).add_system_message(
+                    "[newdaily] timed out (10 min) — try qwen-turbo / qwen-flash via /setup.",
+                    style="red",
+                )
+            except Exception as e:
+                try:
+                    self.query_one("#logo-panel", LogoPanel).set_daily_status(NewsPanel.STATUS_STALE)
+                except Exception:
+                    pass
+                self.query_one("#message-list", MessageList).add_system_message(
+                    f"[newdaily] error ({type(e).__name__}): {e}", style="red"
+                )
+            finally:
+                self._newdaily_running = False
 
-        except _asyncio.TimeoutError:
-            try:
-                self.query_one("#logo-panel", LogoPanel).set_daily_status(NewsPanel.STATUS_STALE)
-            except Exception:
-                pass
-            ml.add_system_message(
-                "● /newdaily timed out (10 min) — try a faster model (qwen-turbo / qwen-flash) via /setup.", style="red"
-            )
-        except BaseException as e:
-            # Catches CancelledError, WorkerCancelled, and all other exceptions
-            try:
-                self.query_one("#logo-panel", LogoPanel).set_daily_status(NewsPanel.STATUS_STALE)
-            except Exception:
-                pass
-            err_name = type(e).__name__
-            ml.add_system_message(f"● newdaily error ({err_name}): {e}", style="red")
-        finally:
-            # MUST always run so the mutex is released
-            self._newdaily_running = False
+        _asyncio.ensure_future(_run())
+
+    async def _handle_newdaily_command(self) -> None:
+        """Kept for compatibility — delegates to background launcher."""
+        self._start_newdaily_background()
 
     # ── CD command handler ──────────────────────────────────────────────────
 

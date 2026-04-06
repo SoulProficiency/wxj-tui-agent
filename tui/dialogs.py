@@ -1026,11 +1026,22 @@ class SetupDialog(ModalScreen[AgentConfig | None]):
     def _delete_selected_profile(self) -> None:
         sel = self.query_one("#select-profile", Select)
         if sel.value is Select.BLANK or not sel.value:
+            self._show_error("No profile selected. Pick one from the dropdown first.")
             return
         name = str(sel.value)
         self._config.delete_profile(name)
         save_config(self._config)
-        self._show_info(f"Profile '{name}' deleted. Reopen settings to refresh list.")
+
+        # Immediately refresh the dropdown — no need to reopen settings
+        profiles = self._config.list_profiles()
+        profile_opts = [(p.name, p.name) for p in profiles]
+        if profile_opts:
+            sel.set_options(profile_opts)
+            sel.value = profile_opts[0][1]  # select first remaining
+        else:
+            sel.set_options([("(no saved profiles)", "")])
+            sel.clear()
+        self._show_info(f"Profile '{name}' deleted.")
 
     # ── Form collection ───────────────────────────────────────────────────
 

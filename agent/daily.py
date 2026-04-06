@@ -102,12 +102,16 @@ async def force_update(config: "AgentConfig") -> tuple[bool, str]:
         _save_daily(fallback)
         return False, f"LLM error: {exc}"
 
-    if generated:
+    # Validate: LLM response must contain ## Date: to be considered valid
+    if generated and "## Date:" in generated:
         _save_daily(generated)
         return True, "daily.md updated successfully."
-    # LLM returned empty content — write fallback
+
+    # LLM returned empty or refused (e.g. "I'm sorry, but I can't help with that.")
     fallback = _make_fallback(today_str)
     _save_daily(fallback)
+    if generated:  # non-empty but invalid format — LLM refused or hallucinated
+        return False, f"LLM response was invalid (no ## Date: found), used built-in content. Response: {generated[:80]!r}"
     return False, "LLM unavailable — daily.md refreshed with built-in content."
 
 
