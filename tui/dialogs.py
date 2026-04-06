@@ -459,6 +459,13 @@ class SetupDialog(ModalScreen[AgentConfig | None]):
         profile_opts = [(p.name, p.name) for p in profiles]
         has_profiles = bool(profile_opts)
 
+        # Auto-apply active_profile so fields show the saved values on open,
+        # without requiring the user to click Load manually.
+        _display = cfg  # fallback: use live config as-is
+        if cfg.active_profile:
+            _active = next((p for p in profiles if p.name == cfg.active_profile), None)
+            if _active is not None:
+                _display = _active  # use profile values for initial field display
         with ScrollableContainer():
             with Vertical(id="dialog-box"):
                 yield Label("⚙  WXJ Settings", id="dialog-title")
@@ -494,39 +501,39 @@ class SetupDialog(ModalScreen[AgentConfig | None]):
                             yield Label("Provider:", classes="field-label")
                             yield Select(
                                 options=[(label, val) for label, val in self._PROVIDERS],
-                                value=cfg.provider, id="select-provider",
+                                value=_display.provider, id="select-provider",
                             )
                             yield Label("API Key:", classes="field-label")
-                            yield Input(value=cfg.api_key, password=True,
+                            yield Input(value=_display.api_key, password=True,
                                         placeholder="Your API key", id="input-api-key")
                             yield Label("Base URL:", classes="field-label")
-                            yield Input(value=cfg.base_url,
+                            yield Input(value=_display.base_url,
                                         placeholder="https://api.anthropic.com", id="input-base-url")
                             yield Label("Model:", classes="field-label")
-                            yield Input(value=cfg.model,
+                            yield Input(value=_display.model,
                                         placeholder="claude-3-5-sonnet-20241022", id="input-model")
                             yield Label("Auth Type:", classes="field-label")
                             yield Select(
                                 options=[(label, val) for label, val in self._AUTH_TYPES],
-                                value=cfg.auth_type, id="select-auth-type",
+                                value=_display.auth_type, id="select-auth-type",
                             )
 
                         # RIGHT: Generation + Thinking + Search
                         with Vertical(id="col-right"):
                             yield Label("▌ Generation", classes="section-label")
                             yield Label("Max Tokens:", classes="field-label")
-                            yield Input(value=str(cfg.max_tokens), placeholder="8192",
+                            yield Input(value=str(_display.max_tokens), placeholder="8192",
                                         id="input-max-tokens")
                             with Horizontal(id="temp-top-row"):
                                 with Vertical():
                                     yield Label("Temperature (blank=default):", classes="field-label")
                                     yield Input(
-                                        value="" if cfg.temperature < 0 else str(cfg.temperature),
+                                        value="" if _display.temperature < 0 else str(_display.temperature),
                                         placeholder="e.g. 0.7", id="input-temperature")
                                 with Vertical():
                                     yield Label("Top-P (blank=default):", classes="field-label")
                                     yield Input(
-                                        value="" if cfg.top_p < 0 else str(cfg.top_p),
+                                        value="" if _display.top_p < 0 else str(_display.top_p),
                                         placeholder="e.g. 0.95", id="input-top-p")
 
                             yield Label("▌ Thinking / Reasoning", classes="section-label")
@@ -538,9 +545,9 @@ class SetupDialog(ModalScreen[AgentConfig | None]):
                             )
                             with Horizontal(id="thinking-switch-row"):
                                 yield Label("Enable Thinking:")
-                                yield Switch(value=cfg.enable_thinking, id="switch-thinking")
+                                yield Switch(value=_display.enable_thinking, id="switch-thinking")
                             yield Label("Thinking Budget (tokens):", classes="field-label")
-                            yield Input(value=str(cfg.thinking_budget), placeholder="1024",
+                            yield Input(value=str(_display.thinking_budget), placeholder="1024",
                                         id="input-thinking-budget")
 
                             yield Label("▌ Web Search", classes="section-label")
@@ -551,7 +558,7 @@ class SetupDialog(ModalScreen[AgentConfig | None]):
                             )
                             with Horizontal(id="search-switch-row"):
                                 yield Label("Enable Web Search:")
-                                yield Switch(value=cfg.enable_search, id="switch-search")
+                                yield Switch(value=_display.enable_search, id="switch-search")
 
                     # Save as Profile row — only shown in Model & API tab
                     with Vertical(classes="panel-actions"):

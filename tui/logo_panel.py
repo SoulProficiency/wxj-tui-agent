@@ -258,8 +258,10 @@ class NewsPanel(Vertical):
             pass
 
     def _reload(self) -> None:
-        from agent.daily import load_daily, parse_news
-        daily = load_daily()
+        from agent.daily import _load_daily, parse_news
+        # Use _load_daily (no date filter) so freshly written content is always
+        # visible even if LLM wrote a wrong date or a different date string.
+        daily = _load_daily()
         if daily:
             news = parse_news(daily)
             if news:
@@ -350,12 +352,14 @@ class GreetingArea(Vertical):
 
     def _reload(self) -> None:
         from datetime import date as _date
-        from agent.daily import load_daily, parse_greeting, parse_themes
+        from agent.daily import _load_daily, parse_greeting, parse_themes
 
         today = _date.today()
         date_str = today.strftime("%B %d, %Y  %A")
 
-        daily = load_daily()
+        # Use _load_daily (no date filter) so freshly written content is always
+        # visible even if LLM wrote a wrong date or a different date string.
+        daily = _load_daily()
         if daily:
             greeting = parse_greeting(daily) or "Good day, developer!"
             themes = parse_themes(daily)
