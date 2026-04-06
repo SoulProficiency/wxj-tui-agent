@@ -442,6 +442,9 @@ class SetupDialog(ModalScreen[AgentConfig | None]):
         self._mcp_status: dict[str, bool | None] = {}
         # track which tab is currently active for status label routing
         self._active_tab: str = "model"
+        # guard: suppress provider auto-fill while loading a profile
+        self._loading_profile: bool = False
+        self._pending_profile = None  # holds ModelProfile while loading
 
     def set_mcp_status(self, statuses: dict[str, bool]) -> None:
         """Inject live connection statuses so the list rows show green/red."""
@@ -814,6 +817,17 @@ class SetupDialog(ModalScreen[AgentConfig | None]):
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "select-provider":
+            # If a profile is being loaded, use its exact values instead of
+            # PROVIDER_DEFAULTS so the correct config is always displayed.
+            if self._pending_profile is not None:
+                p = self._pending_profile
+                try:
+                    self.query_one("#input-base-url",   Input).value  = p.base_url
+                    self.query_one("#select-auth-type", Select).value = p.auth_type
+                    self.query_one("#input-model",      Input).value  = p.model
+                except Exception:
+                    pass
+                return
             provider = str(event.value)
             defaults = PROVIDER_DEFAULTS.get(provider, {})
             if not defaults:
@@ -1005,6 +1019,19 @@ class SetupDialog(ModalScreen[AgentConfig | None]):
         if profile is None:
             self._show_error(f"Profile '{name}' not found."); return
         try:
+            # ----------------------------------------------------------------
+            # Root cause: setting select-provider fires on_select_changed
+            # ASYNCHRONOUSLY (after this function returns), which overwrites
+            # base_url/model/auth_type with PROVIDER_DEFAULTS.
+            #
+            # Solution: store the full profile as _pending_profile so that
+            # on_select_changed can read the correct values from it instead
+            # of using PROVIDER_DEFAULTS. Then clear _pending_profile after
+            # a short timer to re-enable normal provider-change behaviour.
+            # ----------------------------------------------------------------
+            self._loading_profile = True
+            self._pending_profile = profile  # on_select_changed will use this
+
             self.query_one("#select-provider",      Select).value = profile.provider
             self.query_one("#input-api-key",         Input).value  = profile.api_key
             self.query_one("#input-base-url",        Input).value  = profile.base_url
@@ -1019,8 +1046,17 @@ class SetupDialog(ModalScreen[AgentConfig | None]):
             self.query_one("#input-thinking-budget", Input).value  = str(profile.thinking_budget)
             self.query_one("#switch-search",         Switch).value = profile.enable_search
             self.query_one("#input-profile-name",    Input).value  = profile.name
-            self._show_info(f"Profile '{name}' loaded — click Save to apply.")
+
+            # Clear the guard after all queued events have been processed
+            def _unlock() -> None:
+                self._loading_profile = False
+                self._pending_profile = None
+
+            self.set_timer(0.15, _unlock)
+            self._show_info(f"Profile '{name}' loaded \u2014 click Save to apply.")
         except Exception as e:
+            self._loading_profile = False
+            self._pending_profile = None
             self._show_error(f"Load error: {e}")
 
     def _delete_selected_profile(self) -> None:
