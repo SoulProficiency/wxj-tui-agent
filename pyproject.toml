@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wxj-tui"
+version = "0.1.0"
+description = "WXJ — Python TUI AI Coding Assistant"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["ai", "assistant", "tui", "mcp", "anthropic", "openai"]
+dependencies = [
+    "textual>=0.80.0",
+    "anthropic>=0.40.0",
+    "rich>=13.0.0",
+    "mcp>=1.0.0",
+    "PyYAML>=6.0",
+    "openai>=1.0.0",
+    "httpx>=0.25.0",
+]
+
+[project.scripts]
+wxj = "main:main"
+
+[tool.setuptools.packages.find]
+# Auto-discover: agent/, tui/ + main.py
+where = ["."]
+include = ["agent*", "tui*"]
+
+[tool.setuptools]
+# main.py is a top-level module (not inside a sub-package)
+py-modules = ["main"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md", "*.yaml", "*.yml"]
